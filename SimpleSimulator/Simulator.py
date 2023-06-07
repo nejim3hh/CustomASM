@@ -1,418 +1,602 @@
-reg_Val_Dict = {
-    '000': 0,
-    '001': 0,
-    '010': 0,
-    '011': 0,
-    '100': 0,
-    '101': 0,
-    '110': 0,
-}
+import sys
 
-varDict={}
+instructions_count = 0
 
-flags = "0000000000000000"
 
-input_list = []
-while True:
+class Memory:
+    def __init__(self):
+        self.memory = [0] * 128
+
+    def read(self, address):
+        return self.memory[address]
+
+    def write(self, address, data):
+        self.memory[address] = data
+
+    def dump(self):
+        ii = 0
+        for data in self.memory:
+            print(f"{data:016b}")
+
+    def dumpOnlyVarMemory(self):
+        # Variable are stored in memory after all instructions end.
+        # Max instructions possible is 128. So variable memory
+        # will start from 128
+        for ii in range(128, 256):
+            val = self.memory[ii]
+            print(f"{val:016b}")
+
+
+class RegisterFile:
+    def __init__(self):
+        self.registers = {
+            '000': 0,
+            '001': 0,
+            '010': 0,
+            '011': 0,
+            '100': 0,
+            '101': 0,
+            '110': 0,
+            'FLAGS': 0
+        }
+
+    def resetFlagsRegister(self):
+        self.registers['FLAGS'] = 0
+
+    def read(self, register):
+        return self.registers[register]
+
+    def write(self, register, data):
+        self.registers[register] = data
+
+    def dump(self):
+        for register, value in self.registers.items():
+            print(f"{register}: {value:016b}")
+
+    def set_overflow_flag(self):
+        self.registers['FLAGS'] |= 0b1000
+
+    def unset_overflow_flag(self):
+        self.registers['FLAGS'] &= 0b0111
+
+    def get_overflow_flag(self):
+        return self.registers['FLAGS'] & 0b1000
+
+    def set_less_than_flag(self):
+        self.registers['FLAGS'] |= 0b0100
+
+    def unset_less_than_flag(self):
+        self.registers['FLAGS'] &= 0b1011
+
+    def get_less_than_flag(self):
+        return self.registers['FLAGS'] & 0b0100
+
+    def set_greater_than_flag(self):
+        self.registers['FLAGS'] |= 0b0010
+
+    def unset_greater_than_flag(self):
+        self.registers['FLAGS'] &= 0b1101
+
+    def get_greater_than_flag(self):
+        return self.registers['FLAGS'] & 0b0010
+
+    def set_equal_flag(self):
+        self.registers['FLAGS'] |= 0b0001
+
+    def unset_equal_flag(self):
+        self.registers['FLAGS'] &= 0b1110
+
+    def get_equal_flag(self):
+        return self.registers['FLAGS'] & 0b0001
+
+
+class ExecutionEngine:
+    def __init__(self, memory, register_file, program_counter):
+        self.memory = memory
+        self.register_file = register_file
+        self.program_counter = program_counter
+        self.halted = False
+
+    def execute(self, instruction):
+        # Convert instruction to binary string representation
+        instruction_str = bin(instruction)[2:].zfill(16)
+        opcode = instruction_str[:5]
+
+        if opcode == '00000':  # Addition
+            # Type-A
+            unused = instruction_str[5:7]
+            reg1 = instruction_str[7:10]
+            reg2 = instruction_str[10:13]
+            reg3 = instruction_str[13:]
+
+            value2 = self.register_file.read(reg2)
+            value3 = self.register_file.read(reg3)
+            result = value2 + value3
+
+            if result > 0b1111111111111111:
+                self.register_file.set_overflow_flag()
+                self.register_file.write(reg1, 0)
+            else:
+                self.register_file.write(reg1, result)
+                self.register_file.resetFlagsRegister()
+
+        elif opcode == '00001':  # Subtraction
+            # Type-A
+            unused = instruction_str[5:7]
+            reg1 = instruction_str[7:10]
+            reg2 = instruction_str[10:13]
+            reg3 = instruction_str[13:]
+
+            value2 = self.register_file.read(reg2)
+            value3 = self.register_file.read(reg3)
+
+            if value2 < value3:
+                self.register_file.set_overflow_flag()
+                self.register_file.write(reg1, 0)
+            else:
+                result = value2 - value3
+                self.register_file.write(reg1, result)
+                self.register_file.resetFlagsRegister()
+
+        elif opcode == '00010':  # Move Immediate
+            # Type-B
+            unused = instruction_str[5:6]
+            reg1 = instruction_str[6:9]
+            imm = instruction_str[9:]
+
+            self.register_file.write(reg1, int(imm, 2))
+            self.register_file.resetFlagsRegister()
+
+        elif opcode == '00011':  # Move Register
+            # Type-C
+            unused = instruction_str[5:10]
+            reg1 = instruction_str[10:13]
+            reg2 = instruction_str[13:]
+            if (int(reg2, 2) == 0b111):
+                reg2 = 'FLAGS'
+
+            value = self.register_file.read(reg2)
+            self.register_file.write(reg1, value)
+            self.register_file.resetFlagsRegister()
+
+        elif opcode == '00100':  # Load
+            # Type-D
+            unused = instruction_str[5:6]
+            reg1 = instruction_str[6:9]
+            addressStr = instruction_str[9:]
+            address = int(addressStr, 2)
+
+            # Variable are stored in memory after all instructions end.
+            # Max instructions possible is 128. So variable memory
+            # will start from 128
+            #address += 128
+
+            # Changes to match official output
+            address += instructions_count
+
+            value = self.memory.read(address)
+            self.register_file.write(reg1, value)
+            self.register_file.resetFlagsRegister()
+
+        elif opcode == '00101':  # Store
+            # Type-D
+            unused = instruction_str[5:6]
+            reg1 = instruction_str[6:9]
+            addressStr = instruction_str[9:]
+            address = int(addressStr, 2)
+
+            # Variable are stored in memory after all instructions end.
+            # Max instructions possible is 128. So variable memory
+            # will start from 128
+            #address += 128
+
+            # Changes to match official output
+            address += instructions_count
+
+            value = self.register_file.read(reg1)
+            self.memory.write(address, value)
+            self.register_file.resetFlagsRegister()
+
+        elif opcode == '00110':  # Multiply
+            # Type-A
+            unused = instruction_str[5:7]
+            reg1 = instruction_str[7:10]
+            reg2 = instruction_str[10:13]
+            reg3 = instruction_str[13:]
+
+            value2 = self.register_file.read(reg2)
+            value3 = self.register_file.read(reg3)
+            result = value2 * value3
+
+            if result > 0b1111111111111111:
+                self.register_file.set_overflow_flag()
+                self.register_file.write(reg1, 0)
+            else:
+                self.register_file.write(reg1, result)
+                self.register_file.resetFlagsRegister()
+
+        elif opcode == '00111':  # Divide
+            # Type-C
+            unused = instruction_str[5:10]
+            reg3 = instruction_str[10:13]
+            reg4 = instruction_str[13:]
+
+            value3 = self.register_file.read(reg3)
+            value4 = self.register_file.read(reg4)
+            if value4 == 0:
+                self.register_file.set_overflow_flag()
+                self.register_file.write('000', 0)
+                self.register_file.write('001', 0)
+            else:
+                quotient = value3 // value4
+                remainder = value3 % value4
+                self.register_file.write('000', quotient)
+                self.register_file.write('001', remainder)
+                self.register_file.resetFlagsRegister()
+
+        elif opcode == '01000':  # Right shift
+            # Type-B
+            unused = instruction_str[5:6]
+            reg1 = instruction_str[6:9]
+            imm_str = instruction_str[9:]
+            imm = int(imm_str, 2)
+
+            value1 = self.register_file.read(reg1)
+            result = value1 >> imm
+            self.register_file.write(reg1, result)
+            self.register_file.resetFlagsRegister()
+
+        elif opcode == '01001':  # Left shift
+            # Type-B
+            unused = instruction_str[5:6]
+            reg1 = instruction_str[6:9]
+            imm_str = instruction_str[9:]
+            imm = int(imm_str, 2)
+            value1 = self.register_file.read(reg1)
+            result = value1 << imm
+            self.register_file.write(reg1, result)
+            self.register_file.resetFlagsRegister()
+
+        elif opcode == '01010':  # XOR
+            # Type-A
+            unused = instruction_str[5:7]
+            reg1 = instruction_str[7:10]
+            reg2 = instruction_str[10:13]
+            reg3 = instruction_str[13:]
+
+            value2 = self.register_file.read(reg2)
+            value3 = self.register_file.read(reg3)
+            result = value2 ^ value3
+            self.register_file.write(reg1, result)
+            self.register_file.resetFlagsRegister()
+
+        elif opcode == '01011':  # OR
+            # Type-A
+            unused = instruction_str[5:7]
+            reg1 = instruction_str[7:10]
+            reg2 = instruction_str[10:13]
+            reg3 = instruction_str[13:]
+
+            value2 = self.register_file.read(reg2)
+            value3 = self.register_file.read(reg3)
+            result = value2 | value3
+            self.register_file.write(reg1, result)
+            self.register_file.resetFlagsRegister()
+
+        elif opcode == '01100':  # AND
+            # Type-A
+            unused = instruction_str[5:7]
+            reg1 = instruction_str[7:10]
+            reg2 = instruction_str[10:13]
+            reg3 = instruction_str[13:]
+
+            value2 = self.register_file.read(reg2)
+            value3 = self.register_file.read(reg3)
+            result = value2 & value3
+            self.register_file.write(reg1, result)
+            self.register_file.resetFlagsRegister()
+
+        elif opcode == '01101':  # Invert
+            # Type-C
+            unused = instruction_str[5:10]
+            reg1 = instruction_str[10:13]
+            reg2 = instruction_str[13:]
+
+            value2 = self.register_file.read(reg2)
+            result = ~value2 & 0b1111111111111111
+            self.register_file.write(reg1, result)
+            self.register_file.resetFlagsRegister()
+
+        elif opcode == '01110':  # Compare
+            # Type-C
+            unused = instruction_str[5:10]
+            reg1 = instruction_str[10:13]
+            reg2 = instruction_str[13:]
+
+            value1 = self.register_file.read(reg1)
+            value2 = self.register_file.read(reg2)
+            if value1 < value2:
+                self.register_file.set_less_than_flag()
+            elif value1 > value2:
+                self.register_file.set_greater_than_flag()
+            else:
+                self.register_file.set_equal_flag()
+
+        elif opcode == '01111':  # Unconditional Jump
+            # Type-E
+            unused = instruction_str[5:9]
+            addressStr = instruction_str[9:]
+            address = int(addressStr, 2)
+            new_pc = address
+
+            self.register_file.resetFlagsRegister()
+            return False, new_pc
+
+        elif opcode == '11100':  # Jump If Less Than
+            # Type-E
+            unused = instruction_str[5:9]
+            addressStr = instruction_str[9:]
+            address = int(addressStr, 2)
+
+            flag = self.register_file.get_less_than_flag()
+            self.register_file.resetFlagsRegister()
+            if flag != 0:
+                new_pc = address
+                return False, new_pc
+
+        elif opcode == '11101':  # Jump If Greater Than
+            # Type-E
+            unused = instruction_str[5:9]
+            addressStr = instruction_str[9:]
+            address = int(addressStr, 2)
+
+            flag = self.register_file.get_greater_than_flag()
+            self.register_file.resetFlagsRegister()
+            if flag != 0:
+                new_pc = address
+                return False, new_pc
+
+        elif opcode == '11111':  # Jump If Equal
+            # Type-E
+            unused = instruction_str[5:9]
+            addressStr = instruction_str[9:]
+            address = int(addressStr, 2)
+
+            flag = self.register_file.get_equal_flag()
+            self.register_file.resetFlagsRegister()
+            if flag != 0:
+                new_pc = address
+                return False, new_pc
+
+        elif opcode == '10010':  # Move Float
+            # Type-B-Float
+            #unused = instruction_str[5:6]
+            reg1 = instruction_str[5:8]
+            imm_str = instruction_str[8:]
+            imm = bin(int(imm_str, 2))[2:]
+            #self.register_file.write(reg1, imm)
+            # self.register_file.resetFlagsRegister()
+
+        elif opcode == '10000':  # Float Addition
+            # Type-A
+            unused = instruction_str[5:7]
+            reg1 = instruction_str[7:10]
+            reg2 = instruction_str[10:13]
+            reg3 = instruction_str[13:]
+
+            value2 = self.register_file.read(reg2)
+            value3 = self.register_file.read(reg3)
+            #float_val2 = binary_to_float16(str(value2))
+            #float_val3 = binary_to_float16(str(value3))
+            #float_result = float_val2 + float_val3
+            # if abs(float_result) >= 2 ** (16 - 1):
+            #    self.register_file.set_overflow_flag()
+            #    self.register_file.write(reg1, 0)
+            # else:
+            #    #TBD
+            #    #Fix add logic
+            #    self.register_file.write(reg1, 0)
+            #    self.register_file.resetFlagsRegister()
+
+        elif opcode == '10001':  # Float Subtraction
+            # Type-A
+            unused = instruction_str[5:7]
+            reg1 = instruction_str[7:10]
+            reg2 = instruction_str[10:13]
+            reg3 = instruction_str[13:]
+
+            value2 = self.register_file.read(reg2)
+            value3 = self.register_file.read(reg3)
+            #float_val2 = binary_to_float16(str(value2))
+            #float_val3 = binary_to_float16(str(value3))
+
+            # if float_val3 > float_val2:
+            #    self.register_file.set_overflow_flag()
+            #    self.register_file.write(reg1, 0)
+            # else:
+            #    float_result = float_val2 - float_val3
+            #    #TBD
+            #    #Convert float_result to 16 bit
+            #    self.register_file.write(reg1, 0)
+            #    self.register_file.resetFlagsRegister()
+
+        elif opcode == '10011':  # Set
+            # Type-B
+            unused = instruction_str[5:6]
+            reg1 = instruction_str[6:9]
+            imm_str = instruction_str[9:]
+            imm = int(imm_str, 2)
+
+            reg_val1 = self.register_file.read(reg1)
+            mask_value = 0b1 << imm
+            reg_val1 |= mask_value
+
+            self.register_file.write(reg1, reg_val1)
+            self.register_file.resetFlagsRegister()
+
+        elif opcode == '10100':  # Clear
+            # Type-B
+            unused = instruction_str[5:6]
+            reg1 = instruction_str[6:9]
+            imm_str = instruction_str[9:]
+            imm = int(imm_str, 2)
+
+            reg_val1 = self.register_file.read(reg1)
+            mask_value = 0b1 << imm
+            invert_mask_value = ~mask_value & 0xFFFF
+            reg_val1 &= invert_mask_value
+
+            self.register_file.write(reg1, reg_val1)
+            self.register_file.resetFlagsRegister()
+
+        elif opcode == '10101':  # Toggle
+            # Type-B
+            unused = instruction_str[5:6]
+            reg1 = instruction_str[6:9]
+            imm_str = instruction_str[9:]
+            imm = int(imm_str, 2)
+
+            reg_val1 = self.register_file.read(reg1)
+            mask_value = 0b1 << imm
+            reg_val1 ^= mask_value
+
+            self.register_file.write(reg1, reg_val1)
+            self.register_file.resetFlagsRegister()
+
+        elif opcode == '10110':  # Rotate Left
+            # Type-B
+            unused = instruction_str[5:6]
+            reg1 = instruction_str[6:9]
+            imm_str = instruction_str[9:]
+            imm = int(imm_str, 2)
+
+            reg_val1 = self.register_file.read(reg1)
+            num1 = (reg_val1 << imm) & 0xFFFF
+            num2 = (reg_val1 >> (16 - imm)) & 0xFFFF
+            result = num1 | num2
+            reg_val1 = result
+
+            self.register_file.write(reg1, reg_val1)
+            self.register_file.resetFlagsRegister()
+
+        elif opcode == '10111':  # Rotate Right
+            # Type-B
+            unused = instruction_str[5:6]
+            reg1 = instruction_str[6:9]
+            imm_str = instruction_str[9:]
+            imm = int(imm_str, 2)
+
+            reg_val1 = self.register_file.read(reg1)
+            num1 = (reg_val1 >> imm) & 0xFFFF
+            num2 = (reg_val1 << (16 - imm)) & 0xFFFF
+            result = num1 | num2
+            reg_val1 = result
+
+            self.register_file.write(reg1, reg_val1)
+            self.register_file.resetFlagsRegister()
+
+        elif opcode == '11010':  # Halt
+            return True, None
+
+        new_pc = self.program_counter + 1
+        return False, new_pc
+
+
+def binary_to_float16(binary_string):
     try:
-        l = input().strip()
-        input_list.append(l)
-
-
-    except EOFError:
-        break 
-
-def convert_binary(number):
-    bin_int_num=str(bin(int(float(number))))[2:]
-    if len(str(bin_int_num))>3:
-        return 0
-    decimal_num=number-int(float(number))
-    count=0
-    bin_dec_num=''
-    while count<5:
-        count+=1
-        bit=int(decimal_num*2)
-        bin_dec_num+=str(bit)
-        decimal_num=decimal_num*2- bit
-    k=3
-    bias=2**(k-1) -1
-    power=len(bin_int_num)-1+bias
-    power=str(bin(power))[2:]
-    if len(power)<3:
-        power=(3-len(power))*"0" + power
-    mantissa=(str(bin_int_num)[1:]+bin_dec_num)[:5]
-    return (power+mantissa)
-
-# Helper functions
-def decToBin(val, bits):
-    if type(val) == float:
-        a = convert_binary(val)
-        if len(a) < bits:
-            a = a + ("0" * (bits - len(a)))
-        return a
-    else:
-        b = str(bin(val)[2:])
-        if len(b) < bits:
-            b = "0" * (bits - len(b)) + b
-        return b
-
-def binToDec(bin_num):
-    a = int(bin_num, 2)
-    return a
-
-
-def getRegVal(reg):
-    return reg_Val_Dict.get(reg)
-
-
-def print_reg():
-    for i in reg_Val_Dict:
-        print(decToBin(reg_Val_Dict.get(i), 16), end=" ")
-
-def float_to_decimal(binary):
-    exponent = int(binary[0:3], 2) - 3
-    mantissa = binary[3:]
-    decimal = 0
-    for i, bit in enumerate(mantissa):
-        if bit == "1":
-            decimal += 1 / (2 ** (i + 1))
-    result = (1 + decimal) * 2 ** exponent
-    return result
-
-
-# Instruction functions
-def add(current, flags):
-    dest_reg = getRegVal(current[7:10])
-    reg1 = getRegVal(current[10:13])
-    reg2 = getRegVal(current[13:16])
-    # print(dest_reg,reg1,reg2)
-    dest_reg = reg1 + reg2
-    if (len(bin(dest_reg)) <= 9):
-        reg_Val_Dict[current[7:10]] = dest_reg
-        return flags
-    else:
-        return flags[0:12] + "1" + flags[13:16]
-
-def addf(current, flags):
-    dest_reg = getRegVal(current[7:10])
-    reg1 = getRegVal(current[10:13])
-    reg2 = getRegVal(current[13:16])
-    dest_reg = reg1 + reg2
-    if (len(convert_binary(dest_reg)) <= 8):
-        reg_Val_Dict[current[7:10]] = dest_reg
-        return flags
-    else:
-        return flags[0:12] + "1" + flags[13:16]
-
-
-
-def sub(current, flag):
-    dest_reg = getRegVal(current[7:10])
-    reg1 = getRegVal(current[10:13])
-    reg2 = getRegVal(current[13:16])
-    # print(dest_reg,reg1,reg2)
-    if (reg1 >= reg2):
-        dest_reg = reg1 - reg2
-        reg_Val_Dict[current[7:10]] = dest_reg
-        return flag
-    else:
-        return flag[0:12] + "1" + flag[13:16]
-
-def subf(current, flag):
-    dest_reg = getRegVal(current[7:10])
-    reg1 = getRegVal(current[10:13])
-    reg2 = getRegVal(current[13:16])
-    # print(dest_reg,reg1,reg2)
-    if (reg1 >= reg2):
-        dest_reg = reg1 - reg2
-        reg_Val_Dict[current[7:10]] = dest_reg
-        return flag
-    else:
-        return flag[0:12] + "1" + flag[13:16]
-
-def mul(current):
-    dest_reg = getRegVal(current[7:10])
-    reg1 = getRegVal(current[10:13])
-    reg2 = getRegVal(current[13:16])
-    # print(dest_reg,reg1,reg2)
-    dest_reg = reg1 * reg2
-    if (len(bin(dest_reg)) <= 9):
-        reg_Val_Dict[current[7:10]] = dest_reg
-        return flags
-    else:
-        return flags[0:12] + "1" + flags[13:16]
-
-def mulf(current):
-    dest_reg = getRegVal(current[7:10])
-    reg1 = getRegVal(current[10:13])
-    reg2 = getRegVal(current[13:16])
-    dest_reg = reg1 * reg2
-    if (len(convert_binary(dest_reg)) <= 8):
-        reg_Val_Dict[current[7:10]] = dest_reg
-        return flags
-    else:
-        return flags[0:12] + "1" + flags[13:16]
-
-
-def XOR(current):
-    dest_reg = getRegVal(current[7:10])
-    reg1 = getRegVal(current[10:13])
-    reg2 = getRegVal(current[13:16])
-    # print(dest_reg,reg1,reg2)
-    dest_reg = reg1 ^ reg2
-    reg_Val_Dict[current[7:10]] = dest_reg
-    # print(dest_reg)
-
-
-def OR(current):
-    dest_reg = getRegVal(current[7:10])
-    reg1 = getRegVal(current[10:13])
-    reg2 = getRegVal(current[13:16])
-    # print(dest_reg,reg1,reg2)
-    dest_reg = reg1 | reg2
-    reg_Val_Dict[current[7:10]] = dest_reg
-    # print(dest_reg)
-
-
-def AND(current):
-    dest_reg = getRegVal(current[7:10])
-    reg1 = getRegVal(current[10:13])
-    reg2 = getRegVal(current[13:16])
-    # print(dest_reg,reg1,reg2)
-    dest_reg = reg1 & reg2
-    reg_Val_Dict[current[7:10]] = dest_reg
-    # print(dest_reg)
-
-
-def mov_imm(current):
-    dest_reg = binToDec(current[9:16])
-    reg_Val_Dict[current[6:9]] = dest_reg
-
-def movf_imm(current):
-    dest_reg = float_to_decimal(current[9:16])
-    reg_Val_Dict[current[6:9]] = dest_reg
-
-
-def r_shift(current):
-    dest_reg = getRegVal(current[6:9])
-    dest_reg = dest_reg >> binToDec(current[9:16])
-    reg_Val_Dict[current[6:9]] = dest_reg
-
-
-def l_shift(current):
-    dest_reg = getRegVal(current[6:9])
-    dest_reg = dest_reg << binToDec(current[9:16])
-    reg_Val_Dict[current[6:9]] = dest_reg
-
-
-def mov_reg(current):
-    if(current[13:16]!="111"):
-        reg1=getRegVal(current[13:16])
-        dest_reg=reg1
-        reg_Val_Dict[current[10:13]]=dest_reg
-    else:
-        reg1=binToDec(flags)
-        dest_reg=reg1
-        reg_Val_Dict[current[10:13]]=dest_reg
-
-
-def div(current, flag):
-    reg3 = getRegVal(current[10:13])
-    reg4 = getRegVal(current[13:16])
-    # print(dest_reg,reg1,reg2)
-    if (reg4 != 0):
-        quotient = reg3 // reg4
-        remainder = reg3 % reg4
-        reg_Val_Dict['000'] = quotient
-        reg_Val_Dict['001'] = remainder
-        return flag
-    else:
-        return flag[0:12] + "1" + flag[13:16]
-
-
-def cmp(current, flag):
-    reg1 = getRegVal(current[10:13])
-    reg2 = getRegVal(current[13:16])
-    if (reg1 < reg2):
-        flag = flag[0:13] + "1" + flag[14:16]
-    elif (reg1 > reg2):
-        flag = flag[0:14] + "1" + flag[15:16]
-    elif (reg1 == reg2):
-        flag = flag[0:15] + "1" + flag[16:16]
-    return flag
-
-
-# def inv(current):
-#     reg2 = getRegVal(current[13:16])
-#     not_val = ~reg2
-#     reg_Val_Dict[current[10:13]] = not_val
-
-def inv(current):
-    reg2=getRegVal(current[13:16])
-    not_val=""
-    for i in decToBin(reg2,16):
-        if i=="0":
-            not_val="".join([not_val,"1"])
-        elif i=="1":
-            not_val="".join([not_val,"0"])
-    reg_Val_Dict[current[10:13]]=binToDec(not_val)
-    # print(not_val)
-
-
-def jmp(current):
-    pc = binToDec(current[9:16])
-    return pc
-
-
-def jlt(pc, current):
-    if flags[13] == "1":
-        pc = binToDec(current[9:16])
-    else:
-        pc += 1
-    return pc
-
-
-def jgt(pc, current):
-    if flags[14] == "1":
-        pc = binToDec(current[9:16])
-    else:
-        pc += 1
-    return pc
-
-
-def je(pc, current):
-    if flags[15] == "1":
-        pc = binToDec(current[9:16])
-    else:
-        pc = pc + 1
-    return pc
-
-
-def ld(current):
-    mem_add = current[9:16]
-    dest_reg = current[6:9]
-    if mem_add not in varDict.keys():
-        varDict[mem_add] = 0
-    reg_Val_Dict[dest_reg] = varDict[mem_add]
-    
-
-
-def st(current):
-    mem_add = current[9:16]
-    dest_reg = current[6:9]
-    varDict[mem_add] = reg_Val_Dict[dest_reg]
-
-
-# Program variables
-pc = 0
-output_list = []
-halted = False
-i = 0
-
-# Main execution
-while (halted != True):
-    # variables
-    bin_pc = decToBin(pc, 7)
-    curr = input_list[pc]
-    curr_inst = (curr[0:5])
-    jump_inst = False
-    newFlags = flags
-
-    # Identifying opcode and executing instructions
-    if (curr_inst == "00000"):
-        newFlags = add(curr, flags)
-    elif (curr_inst == "00001"):
-        newFlags = sub(curr, flags)
-    elif (curr_inst == "00110"):
-        newFlags = mul(curr)
-
-    elif (curr_inst == "01010"):
-        XOR(curr)
-    elif (curr_inst == "01011"):
-        OR(curr)
-    elif (curr_inst == "01100"):
-        AND(curr)
-    elif (curr_inst == "00010"):
-        mov_imm(curr)
-    elif (curr_inst == "01000"):
-        r_shift(curr)
-    elif (curr_inst == "01001"):
-        l_shift(curr)
-    elif (curr_inst == "00011"):
-        mov_reg(curr)
-    elif (curr_inst == "00111"):
-        newFlags = div(curr, flags)
-    elif (curr_inst == "01101"):
-        inv(curr)
-    elif (curr_inst == "01110"):
-        newFlags = cmp(curr, flags)
-    elif (curr_inst == "01111"):
-        pc = jmp(curr)
-        jump_inst = True
-    elif (curr_inst == "11100"):
-        pc = jlt(pc, curr)
-        jump_inst = True
-    elif (curr_inst == "11101"):
-        pc = jgt(pc, curr)
-        jump_inst = True
-    elif (curr_inst == "11111"):
-        pc = je(pc, curr)
-        jump_inst = True
-    elif (curr_inst == "11010"):
-        halted = True
-    elif (curr_inst == "10000"):
-        newFlags = addf(curr, flags)
-    elif (curr_inst == "10001"):
-        newFlags = subf(curr, flags)
-    elif (curr_inst == "10110"):
-        newFlags = mulf(curr)
-    elif (curr_inst == "10010"):
-        movf_imm(curr)
-    elif (curr_inst == "10010"):
-        movf_imm(curr)
-    elif (curr_inst == "10010"):
-        movf_imm(curr)
-    elif (curr_inst == "00100"):
-        ld(curr)
-    elif (curr_inst == "00101"):
-        st(curr)
-
-
-    # Setting/Resetting flags reg
-    if (newFlags == flags):
-        flags = "0000000000000000"
-    else:
-        flags = newFlags
-
-    print(bin_pc, end="        ")
-    print_reg()
-    print(flags)
-    # print("")
-
-    if (jump_inst == False):
-        pc += 1
-
-
-n_nl=0
-for i in input_list:
-    if i=="\n":
-        n_nl+=1
-
-for i in range(n_nl):
-    input_list.remove("\n")
-pc=0
-for i in input_list:
-    if "\n" in i:
-        print(i,end="")
-    else:
-        print(i)
-    pc+=1
-
-for i in varDict.keys():
-    # print(i)
-    print(decToBin(varDict.get(i),16))
-    pc+=1
-
-while(pc<128):
-    print("0000000000000000")
-    pc += 1
+        # Check if the binary string is 16 bits
+        if len(binary_string) != 16:
+            raise ValueError("Binary string must be 16 bits.")
+
+        # Convert the binary string to an integer
+        integer_value = int(binary_string, 2)
+
+        # Check if the integer value is negative
+        if integer_value >= 2 ** (16 - 1):
+            integer_value -= 2 ** 16
+
+        # Convert the integer to a float
+        float_value = float(integer_value)
+
+        return float_value
+
+    except Exception as e:
+        print("Error:", str(e))
+
+
+def float_to_binary_16bit(floating_number):
+    try:
+        # Convert the string to a floating-point number
+        number = float(floating_number)
+
+        # Check if the number can fit into an 8-bit register
+        if abs(number) >= 2 ** (16 - 1):
+            raise Exception(
+                "Number is too large to fit in an 16-bit register.")
+
+        # Convert the number to a binary string with 8 bits
+        binary_string = format(int(number), '016b')
+
+        return binary_string
+
+    except Exception as e:
+        print("Error:", str(e))
+
+
+def initialize_memory_from_raw_bin(memory, raw_bin_instructions):
+    for i, instruction in enumerate(raw_bin_instructions):
+        instruction = instruction.strip()
+        if instruction:
+            try:
+                int_val = int(instruction, 2)
+                memory.write(i, int_val)
+            except ValueError:
+                print(f"Invalid instruction at line {i + 1}: {instruction}")
+                exit(1)
+
+
+def scan_input():  # Take input from file
+    line_no = 0
+    raw_bin = []   # removed empty lines
+    while 1:
+        try:
+            line = input()+' '
+            line_no += 1
+            if line.isspace():
+                continue
+            raw_bin.append(line)
+        except Exception:
+            break
+    return raw_bin
+
+
+def simulator():
+    memory = Memory()
+    register_file = RegisterFile()
+    program_counter = 0
+
+    raw_bin_instructions = scan_input()
+    instructions_count = len(raw_bin_instructions)
+
+    execution_engine = ExecutionEngine(memory, register_file, program_counter)
+
+    initialize_memory_from_raw_bin(memory, raw_bin_instructions)
+
+    while not execution_engine.halted:
+
+        instruction = memory.read(execution_engine.program_counter)
+        execution_engine.halted, new_pc = execution_engine.execute(instruction)
+
+        print(f"{execution_engine.program_counter:07b}        "
+              f"{register_file.read('000'):016b} {register_file.read('001'):016b} "
+              f"{register_file.read('010'):016b} {register_file.read('011'):016b} "
+              f"{register_file.read('100'):016b} {register_file.read('101'):016b} "
+              f"{register_file.read('110'):016b} {register_file.read('FLAGS'):016b}")
+
+        execution_engine.program_counter = new_pc
+
+    memory.dump()
+
+
+if __name__ == '__main__':
+    simulator()
