@@ -11,7 +11,7 @@ reg_Val_Dict = {
 varDict={}
 
 flags = "0000000000000000"
- 
+
 input_list = []
 while True:
     try:
@@ -20,7 +20,7 @@ while True:
 
 
     except EOFError:
-        break    
+        break 
 
 def convert_binary(number):
     bin_int_num=str(bin(int(float(number))))[2:]
@@ -314,7 +314,7 @@ while (halted != True):
     # variables
     bin_pc = decToBin(pc, 7)
     curr = input_list[pc]
-    curr_inst = (str(curr)[0:5])
+    curr_inst = (curr[0:5])
     jump_inst = False
     newFlags = flags
 
@@ -400,12 +400,18 @@ for i in input_list:
 
 for i in range(n_nl):
     input_list.remove("\n")
-
+pc=0
 for i in input_list:
     if "\n" in i:
         print(i,end="")
     else:
         print(i)
+    pc+=1
+
+for i in varDict.keys():
+    # print(i)
+    print(decToBin(varDict.get(i),16))
+    pc+=1
 
 while(pc<128):
     print("0000000000000000")
