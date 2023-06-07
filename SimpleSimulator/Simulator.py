@@ -250,7 +250,7 @@ def cmp(current, flag):
 def inv(current):
     reg2=getRegVal(current[13:16])
     not_val=""
-    for i in decToBin(reg2,7):
+    for i in decToBin(reg2,16):
         if i=="0":
             not_val="".join([not_val,"1"])
         elif i=="1":
